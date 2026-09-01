@@ -43,7 +43,7 @@ Show the user this guidance verbatim before asking the TTL question:
 >
 > - **Access token TTL** — set by JPM's IDAnywhere server, returned as `expires_in` (seconds) in every token response. The generated module reads this value and reuses the access token across requests until shortly before it expires. Don't treat it as fixed — server-side defaults can change.
 >
-> - **JWT TTL** — client-controlled (you pick). The JWT is the credential you hand to IDAnywhere to *get* an access token. JPM's guidance: **8 hours for PROD**; longer is fine for **CAT** (the JPM Bruno sample uses 6 months).
+> - **JWT TTL** — client-controlled (you pick). The JWT is the credential you hand to IDAnywhere to *get* an access token. JPM's guidance: **8 hours for PROD**; longer is fine for **CAT**.
 >
 > **Anti-pattern to avoid**: generating a fresh JWT *and* a fresh access token on every API call (think of it like running a card auth on a brand-new payment instrument every transaction — wasteful and slow). The access token is reusable until expiry. The generated module caches it in memory and only refreshes it when within ~30s of expiry. Call `getAccessToken()` once per outbound request and let the cache do its job.
 
@@ -52,11 +52,11 @@ Then ask, with default options that depend on the environment chosen in Step 2:
 - Question: "How long should JWTs be valid?"
 - Header: "JWT TTL"
 - Options for **PROD** or **Both**:
-  - "8 hours (JPM recommended for PROD)"
+  - "8 hours"
   - "1 hour"
   - "Custom"
 - Options for **CAT** only:
-  - "6 months (matches JPM sample)"
+  - "6 months"
   - "8 hours"
   - "Custom"
 

@@ -125,8 +125,6 @@ If **Yes**:
 
 ## Step 5 — Not yet onboarded
 
-<!-- TODO(content+legal): confirm exact wording with the content and legal teams before release. -->
-
 Tell the user:
 
 > JPM onboarding is handled by your Relationship Manager (RM). Please reach out to your RM to begin onboarding and to receive your clientId, certificate, and private key. Once you have them, run this skill again.
