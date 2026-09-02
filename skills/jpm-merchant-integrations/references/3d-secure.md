@@ -27,7 +27,7 @@ If 3DS is invoked inline as part of an Online Payments authorization, see `onlin
 ## Prerequisites
 
 - Auth module + `getAccessToken()` already wired (see `../SKILL.md` Step 1).
-- Card details available client-side at the moment of authentication (PAN, expiry, CVV are *not* required for 3DS itself — but the cardholder browser context is).
+- Card details available at the moment of authentication. The **PAN and expiry are required** — they identify the card to the directory server, and the Prepare sample below sends both. **CVV is not** part of 3DS; it belongs to the subsequent authorization, not the authentication. The cardholder browser context is required as well (see "The two browser round-trips").
 - Frontend able to host the issuer's challenge UI (iframe / redirect) when a step-up is required.
 
 ## Base URLs
@@ -141,11 +141,36 @@ Both are the same pattern: your server hands the frontend a target URL + a paylo
 
 The notification URLs must be **absolute and browser-reachable**, and ideally same-origin with the SPA so the `postMessage` back to `window.parent` is trivial (e.g. serve the SPA and proxy `/api` to the backend from one origin).
 
+### Securing the `postMessage` bridge
+
+The ACS controls where the iframe navigates, so the SPA's `message` listener is reachable by any
+page the ACS (or anything else) can load into a frame. Treat it as an untrusted input channel:
+
+- **Send with an explicit target origin — never `"*"`.** On the callback page:
+  ```js
+  window.parent.postMessage({ type: "3ds-method-complete" }, "https://your-spa.example.com");
+  ```
+  Use a build-time constant for the SPA origin. `"*"` broadcasts to whatever ended up as the parent.
+- **Check `event.origin` in the listener, before anything else.** An unchecked listener lets any
+  framed page forge a "challenge complete" message and advance your checkout:
+  ```js
+  window.addEventListener("message", (event) => {
+    if (event.origin !== "https://your-spa.example.com") return;   // reject, don't process
+    if (event.source !== iframeEl.contentWindow) return;           // must be the iframe you opened
+    // ...then handle event.data
+  });
+  ```
+- **Carry no trust in the message payload.** The message is a *signal that a step finished*, not
+  evidence that it succeeded. Never read a CAVV, ECI, or status out of `event.data` — always
+  re-confirm server-side with `GET /authentications/{authenticationId}` and gate the authorization
+  on what that returns.
+- **Remove the listener once the flow resolves**, so a late or repeated message can't re-enter it.
+
 ### Session state across the steps
 
 Prepare, Perform, and complete are **separate HTTP requests**, but the card + amount + account details captured at Prepare must survive until the final authorization. Hold them in server-side session state **keyed by `authenticationId`** (the value Prepare returns), and enforce it at complete time: look up the pending order, verify the GET-results CAVV is present, *then* authorize — never process the payment if authentication did not complete. Delete the session entry once the payment resolves. A single-process dev build can use an in-memory `Map`; production needs a real server-side session/cache with a short TTL (card data is transient and must not leak between shoppers).
 
-The one step the doc does not cover, because it belongs to the payment API: feed the resulting CAVV (`authenticationResult.threeDomainSecureCompletion.threeDSAuthenticationValue`), ECI (`.electronicCommerceIndicator`), and `dsTransactionId` into the Online Payments `threeDS` block — see `online-payments.md`.
+The one step the doc does not cover, because it belongs to the payment API: feed the resulting CAVV (`authenticationResult.threeDomainSecureCompletion.threeDSAuthenticationValue`), ECI (`.electronicCommerceIndicator`), and the DS transaction ID into the Online Payments `authentication.threeDS` block — see `online-payments.md`. Note the field names differ across the two APIs: the DS transaction ID is sent to Online Payments as **`authenticationTransactionId`**, and the CAVV as `authenticationValue`.
 
 ## CAT smoke test
 
@@ -167,3 +192,5 @@ Then pass the resulting CAVV + ECI into an Online Payments authorization in CAT 
 - Processing the payment when authentication did not complete — gate authorization on a present CAVV.
 - Sending CAT cryptograms to PROD authorization (will fail with "invalid cryptogram"). Confirm both calls hit the same environment.
 - Forgetting browser fingerprint fields → issuer downgrades to challenge unnecessarily.
+- **`postMessage(..., "*")` or a listener with no `event.origin` check** — the ACS controls the iframe, so an unchecked bridge lets a framed page forge "authentication complete". Pin the target origin, verify `event.origin` and `event.source`, and confirm the outcome server-side.
+- **Trusting the CAVV/ECI out of `event.data`** — the browser message is a completion signal only. Read the cryptogram from `GET /authentications/{authenticationId}` on the server.

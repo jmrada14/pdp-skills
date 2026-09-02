@@ -43,17 +43,17 @@ Subscriptions describe **what events to deliver where**.
 
 ### Endpoints
 
-- **`POST   {{notif_url}}/v1/subscriptions`** — create a subscription. Returns `subscriptionId`.
-- **`GET    {{notif_url}}/v1/subscriptions`** — read.
+- **`POST   {{notif_url}}/subscriptions`** — create a subscription. Returns `subscriptionId`.
+- **`GET    {{notif_url}}/subscriptions`** — read.
   - With `subscription-id` header → returns one subscription.
   - Without it → returns all subscriptions for the entity.
-- **`PUT    {{notif_url}}/v1/subscriptions/{subscriptionId}`** — update. Partial updates allowed (omit `recipientDetails` if not changing).
-- **`DELETE {{notif_url}}/v1/subscriptions/{subscriptionId}`** — remove.
+- **`PUT    {{notif_url}}/subscriptions/{subscriptionId}`** — update. Partial updates allowed (omit `recipientDetails` if not changing).
+- **`DELETE {{notif_url}}/subscriptions/{subscriptionId}`** — remove.
 
 ### Sample — create a subscription
 
 ```json
-POST {{notif_url}}/v1/subscriptions
+POST {{notif_url}}/subscriptions
 Headers: entity-type: MERCHANT, entity-id: {{merchant-id}}, request-id: <uuid>, merchant-id: {{merchant-id}}
 
 {
@@ -75,11 +75,11 @@ Headers: entity-type: MERCHANT, entity-id: {{merchant-id}}, request-id: <uuid>, 
 
 ## Discover available event types
 
-- **`GET {{notif_url}}/v1/notificationTypes`** — returns the catalog of notification families and subscription types you can subscribe to. Use this to drive a UI or seed your `notifications` map rather than hardcoding.
+- **`GET {{notif_url}}/notificationTypes`** — returns the catalog of notification families and subscription types you can subscribe to. Use this to drive a UI or seed your `notifications` map rather than hardcoding.
 
 ## Public signing key fetch
 
-- **`GET {{notif_url}}/v1/publicKeys`** — returns the public key used to sign delivered webhook payloads.
+- **`GET {{notif_url}}/publicKeys`** — returns the public key used to sign delivered webhook payloads.
 - Required header: `signingAlgorithm: EC` (or `RSA` if your subscription is configured for RSA).
 - Standard `entity-type` / `entity-id` / `request-id` / `merchant-id` headers also required.
 
@@ -87,7 +87,7 @@ Headers: entity-type: MERCHANT, entity-id: {{merchant-id}}, request-id: <uuid>, 
 
 ## Health check
 
-- **`GET {{notif_url}}/v1/healthcheck/notification-subscriptions`**
+- **`GET {{notif_url}}/healthcheck/notification-subscriptions`**
 
 ## Signature verification
 
@@ -97,7 +97,7 @@ JPM sends three headers on every webhook POST:
 |---|---|
 | `Signature` | Base64-encoded signature over the raw request body |
 | `Key-ID` | Identifier of the public key used to sign (use this to look up / refresh your cached key) |
-| `Signing algorithm` | Algorithm in use — `EC` (P-256 SHA-256) or `RSA` (3072-bit key) |
+| `Signing-Algorithm` | Algorithm in use — `EC` (P-256 SHA-256) or `RSA` (3072-bit key) |
 
 **Algorithm details (from portal):**
 - **EC (default):** verify using `SHA256withECDSA` against the EC P-256 public key.
@@ -107,11 +107,16 @@ JPM sends three headers on every webhook POST:
 
 ```
 def verify(request):
+    algo          = config.SIGNING_ALGORITHM               # "EC" or "RSA", from YOUR config
     sig_b64       = request.headers["Signature"]
     key_id        = request.headers["Key-ID"]
-    algo          = request.headers["Signing algorithm"]    # "EC" or "RSA"
+    raw_body      = request.raw_bytes                      # NOT request.json() — must be raw
+
+    # Cross-check only. Never let the request choose the verifier.
+    if request.headers.get("Signing-Algorithm") not in (None, algo):
+        return 401
+
     pubkey        = key_cache.get(key_id) or fetch_and_cache(key_id, algo)
-    raw_body      = request.raw_bytes                       # NOT request.json() — must be raw
 
     if algo == "EC":
         ok = ecdsa_sha256_verify(pubkey, raw_body, base64_decode(sig_b64))
@@ -125,7 +130,7 @@ def verify(request):
 
 **Critical:** verify against raw bytes. If your framework parses JSON and you re-serialize, whitespace differences break verification.
 
-## De-duplication (replay protection)
+## De-duplication 
 
 The JPM portal does **not** document a webhook timestamp header or a recommended skew window — do not invent timestamp-based replay rejection. Instead, **de-duplicate by `notificationId`** on the payload body:
 
@@ -164,15 +169,15 @@ JPM's event naming convention is **camelCase notification families containing su
 | `recurringProgramNotification` | `PlanUpdated`, `ConsumerCommunicationUpdated`, `PaymentApplied`, `PaymentNotApplied`, `ProgramUpdated` | Recurring billing |
 
 **Not in the catalog:**
-- **Disputes does not publish events through this API.** Poll the Disputes endpoints (`POST /disputes`, `POST /disputes/status-query`) instead. See `jpm-merchant-integrations/references/disputes.md`.
+- **Disputes does not publish events through this API.** Poll the Disputes endpoints (`POST /disputes`, `POST /disputes/status-query`) instead. Disputes is not covered by `jpm-merchant-integrations` — see the Disputes API docs on the developer portal.
 - **3-D Secure is synchronous-only** — no events. The CAVV / ECI comes back in the Perform response (or after the issuer challenge callback).
 
 Per-event payload schemas live in the Notifications OAS on the portal (referenced as `/schemas/paymentUpdateNotification`, `/schemas/tokenLifecycleNotification`, etc.). Fetch and inspect the schema for any family you subscribe to before writing the handler — the field names and nesting differ across families.
 
 ## CAT smoke test
 
-1. Register a CAT subscription via `POST /v1/subscriptions` with `callbackURL` pointing at your endpoint (use a tunnel like ngrok if needed for local dev).
-2. Fetch the public key: `GET /v1/publicKeys` with `signingAlgorithm: EC` header. Cache it.
+1. Register a CAT subscription via `POST /subscriptions` with `callbackURL` pointing at your endpoint (use a tunnel like ngrok if needed for local dev).
+2. Fetch the public key: `GET /publicKeys` with `signingAlgorithm: EC` header. Cache it.
 3. Trigger a CAT event upstream — for example, run a CAT Online Payments authorization to fire a `paymentUpdateNotification.PaymentApproved`.
 4. Confirm: 2xx returned within JPM's timeout, signature verified using the cached key, event handed off to your async queue.
 5. Force a verification failure (e.g., flip a byte in your cached key) and confirm you reject with 401.
@@ -181,7 +186,7 @@ Per-event payload schemas live in the Notifications OAS on the portal (reference
 
 ## Common pitfalls
 
-- **Wrong signature header.** It's `Signature` (with companion `Key-ID` and `Signing algorithm`). Not `X-Jpm-Signature` or anything custom.
+- **Wrong signature header.** It's `Signature` (with companion `Key-ID` and `Signing-Algorithm`). Not `X-Jpm-Signature` or anything custom.
 - **Verifying against re-serialized JSON instead of raw bytes** — the #1 cause of failed verifications.
 - **Caching the public key indefinitely** — JPM rotates keys on a 365-day cadence and may rotate sooner under incident response. Cache by `Key-ID` and refresh on miss / verification failure.
 - **Synchronous downstream processing inside the handler** — causes timeout retries and duplicate deliveries.

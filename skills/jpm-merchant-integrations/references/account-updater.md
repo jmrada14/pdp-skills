@@ -55,7 +55,7 @@ POST {{accountupdater_url}}/account-updates
 {
   "accountInformation": {
     "cardNumber": "4111111111111111",
-    "expiry": { "month": "9", "year": "2032" }
+    "expiry": { "month": 9, "year": 2032 }
   },
   "cardAccountAction": "REGISTER",
   "merchantRecordIdentifier": "<your-stable-card-record-id>"
@@ -69,7 +69,7 @@ POST {{accountupdater_url}}/account-updates
 {
   "accountInformation": {
     "cardNumber": "4111111111111119",
-    "expiry": { "month": "9", "year": "2032" }
+    "expiry": { "month": 9, "year": 2032 }
   },
   "cardAccountAction": "UNREGISTER"
 }

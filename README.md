@@ -8,7 +8,7 @@ A set of [Agent Skills](https://agentskills.io/) that give GitHub Copilot, Claud
 
 These skills rely on AI agents to produce code, and **all generated code must be reviewed and verified by a qualified engineer before being deployed to production**. AI-generated code can contain subtle correctness, security, or compliance defects.
 
-> **Early access.** Account Updater, Tokenization, and `jpm-notifications` are early access — expect to do additional testing and validation before relying on them.
+> **Early access.** Account Updater, Tokenization, 3-D Secure, and `jpm-notifications` are early access — expect to do additional testing and validation before relying on them.
 
 ---
 
@@ -40,6 +40,7 @@ Each skill folder is composed of three layers:
 | **Online Payments** | `skills/jpm-merchant-integrations/references/online-payments.md` | Full payment lifecycle (auth, capture, void, refund), card / wallet / APM methods, inline 3-D Secure |
 | **Tokenization** | `skills/jpm-merchant-integrations/references/tokenization.md` | Swap a card PAN for a merchant-scoped token to reduce PCI scope and store tokens instead of card data |
 | **3-D Secure (Standalone)** | `skills/jpm-merchant-integrations/references/3d-secure.md` | Standalone 3DS authentication (use the inline `threeDS` field in Online Payments when bundling with an auth) |
+| **Account Updater** | `skills/jpm-merchant-integrations/references/account-updater.md` | Keep stored cards current as issuers reissue them — inquiry mode (sync) or card-registration mode (async, via `jpm-notifications`) |
 
 More APIs (Reporting and others) are planned for future releases.
 

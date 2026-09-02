@@ -16,7 +16,7 @@ The merchant should already have:
 - A way to host a **public HTTPS endpoint** that JPM can POST events to. This is the hard prerequisite — JPM webhooks cannot reach a localhost dev server. Options: a deployed staging environment, a reverse proxy (ngrok / Cloudflare Tunnel) for development, or a dedicated webhook receiver in CAT infra.
 - TLS at the endpoint with a publicly trusted certificate (self-signed will not work).
 
-If auth isn't set up yet, point the merchant at `jpm-onboarding-intake` → `jpm-oauth` first and exit.
+If auth isn't set up yet, point the merchant at `jpm-integrations-get-started` → `jpm-oauth` first and exit.
 
 If invoked standalone, ask:
 - Question: "Do you have a public HTTPS endpoint ready to receive webhooks (or a tunnel set up)?"
@@ -53,7 +53,7 @@ Ask which event families the merchant cares about (free text). JPM organizes eve
 Use `["All"]` to subscribe to every subtype in a family. Full catalog and per-event payload shapes live in `references/webhooks.md`.
 
 **Notes on what this API does NOT cover:**
-- **Disputes does not publish events here.** Dispute state changes are discovered by polling `POST /disputes` and `POST /disputes/status-query` in the Disputes API. If the merchant's goal is dispute notifications, redirect them to `jpm-merchant-integrations` → `references/disputes.md`.
+- **Disputes does not publish events here.** Dispute state changes are discovered by polling `POST /disputes` and `POST /disputes/status-query` in the Disputes API. If the merchant's goal is dispute notifications, redirect them to the Disputes API docs on the developer portal — Disputes is not covered by `jpm-merchant-integrations`.
 - **3-D Secure has no webhook events.** It's a synchronous request/response API.
 
 ## Step 3 — Implement the receiver
@@ -62,16 +62,17 @@ Follow `references/webhooks.md`. Cross-cutting principles:
 
 - **Reuse the existing auth module.** Some webhook setup calls (registering the endpoint with JPM, fetching public keys) need an OAuth bearer token — get it from the merchant's `getAccessToken()`, not a fresh OAuth client.
 - **Fetch JPM's public signing key on startup, cache, refresh on rotation.** Hard-coding the key is brittle; fetching on every request is wasteful. Cache in memory and refresh on a key-id miss.
-- **Verify signature before parsing the body.** Read the `Signature`, `Key-ID`, and `Signing algorithm` headers; verify the signature against the raw request bytes using SHA256withECDSA (EC default) or RSA-SHA256 (alternate). Reject unsigned / invalid-signature requests with 401 before any business logic runs.
+- **Verify signature before parsing the body.** Read the `Signature` and `Key-ID` headers; verify against the raw request bytes using SHA256withECDSA (EC default) or RSA-SHA256 (alternate). Reject unsigned / invalid-signature requests with 401 before any business logic runs.
+- **Pin the algorithm from local config, never from the request.** The merchant chose it at subscription time (`securityPreferences.signingAlgorithm`). Use the inbound `Signing-Algorithm` header only as a cross-check and reject on mismatch — selecting the verifier from an attacker-controlled header is the JWT alg-confusion pattern. `Key-ID` is fine as a cache key because it resolves against keys you fetched from `GET /publicKeys`.
 - **Acknowledge with 2xx within JPM's timeout.** Process asynchronously — push the event to a queue, return 200 immediately. JPM retries on non-2xx; slow handlers cause duplicate deliveries.
-- **De-duplicate by `notificationId`.** Retries are normal. Keep a short-TTL store of recently-seen `notificationId`s and skip duplicates. The JPM portal does not document a timestamp header or a recommended replay-skew window — do not invent timestamp-based rejection.
+- **De-duplicate by `notificationId`.** Retries are normal. Keep a short-TTL store of recently-seen `notificationId`s and skip duplicates. This handles JPM's redeliveries — it is **not** replay protection: a captured signed payload still verifies after the TTL expires. The portal documents no timestamp header, so do not invent timestamp-based rejection; make handlers idempotent against your own business keys instead.
 - **Confirm output paths before writing.** Default to a sibling folder of the auth module (`src/webhooks/`) but offer alternatives, same way `jpm-oauth` did.
 
 ## Step 4 — CAT smoke test
 
 The full smoke test recipe lives in `references/webhooks.md` under "CAT smoke test." High-level pattern:
-1. Register a CAT subscription via `POST /v1/subscriptions` with your `callbackURL`.
-2. Fetch and cache the public signing key via `GET /v1/publicKeys`.
+1. Register a CAT subscription via `POST /subscriptions` with your `callbackURL`.
+2. Fetch and cache the public signing key via `GET /publicKeys`.
 3. Trigger an upstream event (e.g., a CAT Online Payments authorization fires `paymentUpdateNotification.PaymentApproved`).
 4. Confirm: 2xx response, signature verified, event handed off to your async queue.
 5. Force a verification failure (flip a byte in the cached key) and confirm you reject with 401.
@@ -83,7 +84,7 @@ Once one event family is flowing in CAT, ask if the merchant wants to wire addit
 
 ## Rules
 
-- Never disable signature verification "just to get unblocked." A webhook endpoint without signature verification is an unauthenticated public RCE risk surface. If signature verification is failing, fix the verification — don't bypass it.
+- Never disable signature verification "just to get unblocked." An unverified webhook endpoint lets anyone on the internet inject forged events into the merchant's payment state — spoofed captures, refunds, or card updates. If signature verification is failing, fix the verification — don't bypass it.
 - Verify signature **before** parsing the JSON body. The signature is over raw bytes; reparsing and re-serializing changes whitespace and breaks verification.
 - Do not block inside the handler. JPM retries on slow responses and you'll get duplicate deliveries. Return 200 fast, process async.
 - Do not write CAT webhook URLs into PROD config or vice versa. Endpoint registration is per-environment.

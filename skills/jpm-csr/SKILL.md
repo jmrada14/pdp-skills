@@ -1,6 +1,8 @@
 ---
 name: jpm-csr
 description: Generate a Certificate Signing Request (CSR) and matching private key for JPM Payments API onboarding. Use this skill when a merchant needs to create a CSR to send to their JPM Relationship Manager (RM) for client ID provisioning via IDAHO/IDAnywhere, when generating a new key pair for JPM/Chase Orbital API authentication, or when preparing credentials before completing JPM onboarding. Supports CAT, PROD, or both environments at once and enforces the JPM rule that the CN must differ between CAT and PROD.
+metadata:
+  version: 1.0.0
 ---
 
 # JPM CSR Generation
@@ -53,6 +55,16 @@ If the user chose "Both": after generating CAT, re-prompt for PROD using CAT's `
 Ask for an output directory (free text). Suggest defaults:
 - Single env: `./jpm-csr/<env>/` (e.g. `./jpm-csr/cat/`)
 - Both: `./jpm-csr/cat/` and `./jpm-csr/prod/`
+
+**Validate the directory before using it — it is interpolated into shell commands in Step 5.**
+Apply the same rules as the subject fields in Step 3, plus path-specific ones:
+
+- Reject any value containing `"`, `'`, `` ` ``, `$`, `;`, `&`, `|`, `<`, `>`, `\`, a newline, or a
+  tab. These break out of the quoting in Step 5 and execute arbitrary commands.
+- Reject a value starting with `-` (it would be parsed as an openssl/mkdir flag).
+- Reject an empty value.
+- On rejection, re-prompt with the reason. Do not sanitize silently and do not proceed with a
+  value that failed — an unvalidated path here is a command-injection sink, not a cosmetic issue.
 
 The directory is created in Step 5 if it doesn't exist.
 
@@ -126,7 +138,7 @@ Tell the user:
 
 > Send the **`certificateRequest.pem`** file to your Relationship Manager. They will use it to create your Client ID and return a `.pem` certificate plus your `clientId`. Onboarding typically takes 24–48 hours.
 >
-> Keep **`privateKey.key`** safe. You'll reference it later in your OAuth config along with the `.pem` your Relationship Manager sends back. Once you have all three (clientId, .pem, privateKey.key), run the `jpm-onboarding-intake` skill to validate them.
+> Keep **`privateKey.key`** safe. You'll reference it later in your OAuth config along with the `.pem` your Relationship Manager sends back. Once you have all three (clientId, .pem, privateKey.key), run the `jpm-integrations-get-started` skill to validate them.
 
 If the user generated for both environments, remind them the two CSRs go in **separate** IDAHO requests (CAT and PROD).
 
@@ -137,3 +149,4 @@ If the user generated for both environments, remind them the two CSRs go in **se
 - If openssl fails or validation rejects the inputs, exit cleanly — do not loop or auto-retry.
 - The only files this skill creates are the CSR + key in the user's chosen output dir, and (if needed) a `.gitignore` line for `**/privateKey.key`. The temporary `csr.cnf` must be deleted in Step 5c.
 - Never pass user-supplied values through unquoted shell expansion; write them literally into the quoted here-doc.
+- Validate the output directory (Step 4) with the same rigor as the subject fields before it reaches any Bash command. It is interpolated into `mkdir`, the here-doc path, three `openssl` flags, and `rm -f`.

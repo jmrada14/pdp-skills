@@ -18,8 +18,8 @@ Authentication is handled by the merchant's auth module (set up via the `jpm-oau
 
 | Env | URL | Env var |
 |-----|-----|---------|
-| CAT | `https://api-ms-test.payments.jpmorgan.com/api/v2` | `JPM_ONLINE_URL` |
-| PROD | `https://api-ms.payments.jpmorgan.com/api/v2` | `JPM_ONLINE_URL` |
+| CAT | `https://api-ms-test.payments.jpmorgan.com/api/v2` | `JPM_ONLINE_API_URL` |
+| PROD | `https://api-ms.payments.jpmorgan.com/api/v2` | `JPM_ONLINE_API_URL` |
 
 Online Payments shares the host root with 3DS and Account Updater (Optimization & Protection family) and uses the `api/v2` path prefix — the `POST /payments`, `/refunds`, and `/payments/{transactionId}/captures` endpoints in the samples below all resolve against this base. Read it from the env var rather than hardcoding so a future host split doesn't require a code change.
 
